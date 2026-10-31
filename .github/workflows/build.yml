@@ -35,19 +35,26 @@ jobs:
 
       - name: publish
         run: |
+          set -euo pipefail
+          RID="${{ matrix.rid }}"
+          NAME="${{ matrix.name }}"
+          OUT="out/$RID"
           dotnet publish "$PROJECT" \
-            -c Release -f "$FRAMEWORK" -r ${{ matrix.rid }} \
+            -c Release -f "$FRAMEWORK" -r "$RID" \
             --self-contained true \
             -p:PublishSingleFile=true \
             -p:IncludeNativeLibrariesForSelfExtract=true \
             -p:EnableCompressionInSingleFile=true \
             -p:PublishTrimmed=false \
             -p:DebugType=none \
-            -o "out/${{ matrix.rid }}"
-          mv "out/${{ matrix.rid }}/Il2CppDumper" "out/${{ matrix.rid }}/${{ matrix.name }}"
-          chmod +x "out/${{ matrix.rid }}/${{ matrix.name }}"
-          file "out/${{ matrix.rid }}/${{ matrix.name }}"
-          ls -l "out/${{ matrix.rid }}"
+            -p:CheckEolTargetFramework=false \
+            -o "$OUT"
+          if [ "Il2CppDumper" != "$NAME" ]; then
+            mv "$OUT/Il2CppDumper" "$OUT/$NAME"
+          fi
+          chmod +x "$OUT/$NAME"
+          file "$OUT/$NAME"
+          ls -l "$OUT"
 
       - uses: actions/upload-artifact@v4
         with:
