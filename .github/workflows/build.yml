@@ -1,0 +1,107 @@
+name: build
+
+on:
+  push:
+    branches: [ master, main ]
+    tags: [ 'v*' ]
+    paths-ignore: [ '**.md', 'docs/**' ]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PROJECT: Il2CppDumper/Il2CppDumper.csproj
+  FRAMEWORK: net8.0
+
+jobs:
+  publish:
+    name: publish ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            name: Il2CppDumper
+          - rid: linux-arm64
+            name: Il2CppDumper-arm64
+          - rid: linux-arm
+            name: Il2CppDumper-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: publish
+        run: |
+          dotnet publish "$PROJECT" \
+            -c Release -f "$FRAMEWORK" -r ${{ matrix.rid }} \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:EnableCompressionInSingleFile=true \
+            -p:PublishTrimmed=false \
+            -p:DebugType=none \
+            -o "out/${{ matrix.rid }}"
+          mv "out/${{ matrix.rid }}/Il2CppDumper" "out/${{ matrix.rid }}/${{ matrix.name }}"
+          chmod +x "out/${{ matrix.rid }}/${{ matrix.name }}"
+          file "out/${{ matrix.rid }}/${{ matrix.name }}"
+          ls -l "out/${{ matrix.rid }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: out/${{ matrix.rid }}/${{ matrix.name }}
+          if-no-files-found: error
+
+  package:
+    name: package
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: assemble
+        run: |
+          set -e
+          for d in artifacts/*; do
+            bin="$d/$(basename "$d")"
+            [ -f "$bin" ] || continue
+            work="pkg/$(basename "$d")"
+            mkdir -p "$work"
+            cp "$bin" "$work/"
+            cp -v Il2CppDumper/config.json "$work/" 2>/dev/null || true
+            cp -v Il2CppDumper/*.py "$work/" 2>/dev/null || true
+            chmod +x "$work/$(basename "$d")"
+            (cd "$work" && zip -r "../../Il2CppDumper-$(basename "$d").zip" . > /dev/null)
+            echo "built Il2CppDumper-$(basename "$d").zip"
+            unzip -l "Il2CppDumper-$(basename "$d").zip"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: Il2CppDumper-*.zip
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
